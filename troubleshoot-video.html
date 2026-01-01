@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Video Troubleshooter - NexGenFireSafety</title>
+  <style>
+    body { font-family: Inter, system-ui, -apple-system, Arial; background:#f7fafc; color:#111827; padding:24px; }
+    .container{ max-width:980px; margin:0 auto; }
+    h1{ font-size:1.5rem; margin-bottom:0.25rem }
+    p.lead{ color:#374151 }
+    .panel{ background:white; border:1px solid #e5e7eb; padding:16px; border-radius:8px; margin-top:16px }
+    .row{ display:flex; gap:12px; align-items:center; margin-top:12px }
+    .btn{ background:#1f2937; color:white; padding:8px 12px; border-radius:6px; border:none; cursor:pointer }
+    .btn.secondary{ background:#6b7280 }
+    pre{ background:#0f172a; color:#d1fae5; padding:12px; border-radius:6px; max-height:280px; overflow:auto }
+    .status{ font-weight:600 }
+    video{ width:100%; max-height:480px; background:#000 }
+    .log{ max-height:240px; overflow:auto; font-family:monospace; background:#111827; color:#e5e7eb; padding:10px; border-radius:6px }
+    .meta{ display:flex; gap:12px; flex-wrap:wrap }
+    .chip{ background:#eef2ff; color:#3730a3; padding:6px 10px; border-radius:999px }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Video Troubleshooter</h1>
+    <p class="lead">This page loads the site hero video directly and reports <strong>readyState</strong>, <strong>networkState</strong> and any <strong>video.error</strong>. Use this to debug playback issues locally or when served.</p>
+
+    <div class="panel">
+      <div class="meta">
+        <div class="chip">File: <code>resources/room_tour.mp4</code></div>
+        <div class="chip">Try serving: <code>python -m http.server 8000</code></div>
+      </div>
+
+      <div style="margin-top:12px">
+        <video id="debugVideo" controls preload="auto">
+          <source src="resources/room_tour.mp4" type="video/mp4">
+          Your browser does not support the video element.
+        </video>
+      </div>
+
+      <div class="row">
+        <button id="btnReload" class="btn">Reload / Load</button>
+        <button id="btnPlay" class="btn">Play</button>
+        <button id="btnPause" class="btn secondary">Pause</button>
+        <button id="btnHead" class="btn secondary">Fetch HEAD</button>
+      </div>
+
+      <div style="margin-top:12px; display:flex; gap:12px; flex-wrap:wrap">
+        <div class="panel" style="flex:1; min-width:220px">
+          <div>readyState: <span id="readyState" class="status">-</span></div>
+          <div>networkState: <span id="networkState" class="status">-</span></div>
+          <div>paused: <span id="paused" class="status">-</span></div>
+          <div>duration: <span id="duration" class="status">-</span></div>
+          <div>videoWidth x videoHeight: <span id="dimensions" class="status">-</span></div>
+        </div>
+
+        <div class="panel" style="flex:1; min-width:260px">
+          <div>video.error:</div>
+          <pre id="videoError">(no error)</pre>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:12px">
+        <div style="margin-bottom:8px"><strong>Event Log</strong></div>
+        <div id="log" class="log">(events will appear here)</div>
+      </div>
+
+      <div class="panel" style="margin-top:12px">
+        <div style="margin-bottom:8px"><strong>HEAD / Response Headers</strong></div>
+        <pre id="headers">(click &quot;Fetch HEAD&quot; to request headers)</pre>
+      </div>
+    </div>
+
+    <div style="margin-top:18px; color:#374151">Notes:
+      <ul>
+        <li>If running via <code>file://</code> you may see differences in behavior. Serving via HTTP is recommended.</li>
+        <li>Check the Network tab for request status and Content-Type (should be <code>video/mp4</code>).</li>
+        <li>If you see readyState remain 0 or &quot;waiting&quot; events, the browser may be buffering or the resource may not send range headers.</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const video = document.getElementById('debugVideo');
+      const readyStateEl = document.getElementById('readyState');
+      const networkStateEl = document.getElementById('networkState');
+      const pausedEl = document.getElementById('paused');
+      const durationEl = document.getElementById('duration');
+      const dimsEl = document.getElementById('dimensions');
+      const errorEl = document.getElementById('videoError');
+      const logEl = document.getElementById('log');
+      const headersEl = document.getElementById('headers');
+
+      function mapReady(rs){
+        // 0 = HAVE_NOTHING, 1 = HAVE_METADATA, 2 = HAVE_CURRENT_DATA, 3 = HAVE_FUTURE_DATA, 4 = HAVE_ENOUGH_DATA
+        const m = {0:'HAVE_NOTHING',1:'HAVE_METADATA',2:'HAVE_CURRENT_DATA',3:'HAVE_FUTURE_DATA',4:'HAVE_ENOUGH_DATA'};
+        return (rs in m) ? m[rs] : rs;
+      }
+      function mapNet(ns){
+        const m = {0:'NETWORK_EMPTY',1:'NETWORK_IDLE',2:'NETWORK_LOADING',3:'NETWORK_NO_SOURCE'};
+        return (ns in m) ? m[ns] : ns;
+      }
+
+      function updateStatus(){
+        try{
+          readyStateEl.textContent = mapReady(video.readyState);
+          networkStateEl.textContent = mapNet(video.networkState);
+          pausedEl.textContent = video.paused;
+          durationEl.textContent = isFinite(video.duration) ? video.duration : '(n/a)';
+          dimsEl.textContent = video.videoWidth + ' x ' + video.videoHeight;
+          if(video.error){
+            errorEl.textContent = JSON.stringify(video.error);
+          } else {
+            errorEl.textContent = '(no error)';
+          }
+        }catch(e){
+          log('updateStatus error: '+ e);
+        }
+      }
+
+      function log(msg){
+        const ts = new Date().toLocaleTimeString();
+        logEl.textContent = ts + ' — ' + msg + '\n' + logEl.textContent;
+      }
+
+      ['loadstart','loadedmetadata','loadeddata','canplay','canplaythrough','playing','play','pause','waiting','stalled','suspend','abort','error','progress'].forEach(ev=>{
+        video.addEventListener(ev, e=>{
+          log('event: '+ ev);
+          if(ev==='error'){
+            try{ log('video.error: ' + JSON.stringify(video.error)); }catch(err){}
+          }
+          updateStatus();
+        });
+      });
+
+      document.getElementById('btnReload').addEventListener('click', ()=>{
+        // reload the source
+        video.pause();
+        video.load();
+        log('Requested load()');
+        updateStatus();
+      });
+      document.getElementById('btnPlay').addEventListener('click', ()=>{
+        video.play().then(()=> log('play() resolved')).catch(err=> { log('play() rejected: '+ err); console.error(err); updateStatus(); });
+      });
+      document.getElementById('btnPause').addEventListener('click', ()=>{ video.pause(); log('pause() called'); updateStatus(); });
+
+      document.getElementById('btnHead').addEventListener('click', async ()=>{
+        headersEl.textContent = '(fetching...)';
+        try{
+          // Try HEAD first
+          const url = video.querySelector('source')?.src || video.src;
+          log('Fetching HEAD for: ' + url);
+          const controller = new AbortController();
+          const r = await fetch(url, { method:'HEAD', signal: controller.signal });
+          if(!r.ok) {
+            headersEl.textContent = 'HEAD returned status ' + r.status + ' ' + r.statusText;
+            // Try GET for more info
+            const r2 = await fetch(url, { method:'GET' });
+            headersEl.textContent = 'GET status: ' + r2.status + '\n' + JSON.stringify(Object.fromEntries(r2.headers.entries()), null, 2);
+          } else {
+            headersEl.textContent = JSON.stringify(Object.fromEntries(r.headers.entries()), null, 2);
+          }
+        }catch(err){
+          headersEl.textContent = 'Fetch error: ' + err;
+          log('Fetch HEAD error: '+ err);
+        }
+      });
+
+      // initial status
+      updateStatus();
+      log('Troubleshooter ready');
+
+    })();
+  </script>
+</body>
+</html>
